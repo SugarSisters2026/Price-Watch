@@ -1,0 +1,49 @@
+# SugarSisters competitor price watch
+# Each site is scanned once a day by GitHub Actions.
+# type: shopify | woocommerce | sitemap
+#   shopify      reads the public /products.json feed
+#   woocommerce  reads the public /wp-json/wc/store/v1/products feed
+#   sitemap      reads the product sitemap, then each product page (slower)
+
+our_shop:
+  name: SugarSisters
+  url: https://sugarsisters.ie
+  type: shopify
+
+competitors:
+  - name: Bakeworld
+    url: https://www.bakeworld.ie
+    type: shopify
+
+  - name: Keans
+    url: https://www.keanscm.ie
+    type: shopify
+
+  - name: Cakers World
+    url: https://cakersworld.com
+    type: woocommerce
+
+  - name: Home Baking
+    url: https://www.homebaking.ie
+    type: sitemap
+    sitemap: https://www.homebaking.ie/sitemap.xml
+    product_url_contains: /products/
+    max_pages: 800
+
+  - name: Stuff 4 Cakes
+    url: https://www.stuff4cakes.ie
+    type: sitemap
+    sitemap: https://www.stuff4cakes.ie/index.php?route=extension/feed/google_sitemap
+    product_url_contains: product_id=
+    max_pages: 800
+
+settings:
+  # Seconds to wait between requests to the same site, so we never hammer anyone.
+  delay_seconds: 1.0
+  # How closely a competitor product name must match ours (0-100).
+  match_threshold: 75
+  # Keep this many days of daily snapshots.
+  keep_days: 120
+  # Only flag a price change if it moves by at least this much (euro).
+  min_price_change: 0.05
+  user_agent: "SugarSistersPriceWatch/1.0 (+https://sugarsisters.ie; metacoyle@sugarsisters.ie)"
