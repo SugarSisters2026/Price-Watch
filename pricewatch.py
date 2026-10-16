@@ -238,11 +238,36 @@ def parse_product_page(html: str, url: str, site_name: str) -> dict | None:
     }
 
 
-def read_sitemap(site: dict, f: Fetcher) -> list[dict]:
-    urls = _sitemap_urls(site["sitemap"], f)
+SITEMAP_GUESSES = ["/sitemap.xml", "/sitemap_index.xml", "/index.php?route=extension/feed/google_sitemap",
+                   "/index.php?route=feed/google_sitemap", "/index.php?route=information/sitemap"]
+
+
+def _find_product_urls(site: dict, f: Fetcher) -> list[str]:
+    base = site["url"].rstrip("/")
+    tried = [site.get("sitemap")] if site.get("sitemap") else []
+    try:  # sitemaps listed in robots.txt
+        r = f.s.get(base + "/robots.txt", timeout=20)
+        tried += [l.split(":", 1)[1].strip() for l in r.text.splitlines() if l.lower().startswith("sitemap:")]
+    except Exception:
+        pass
+    tried += [base + g for g in SITEMAP_GUESSES]
     want = site.get("product_url_contains")
-    if want:
-        urls = [u for u in urls if want in u]
+    for sm in dict.fromkeys(tried):
+        try:
+            urls = _sitemap_urls(sm, f)
+        except Exception as e:
+            log.info("%s: sitemap %s failed (%s)", site["name"], sm, e)
+            continue
+        if not urls:
+            continue
+        prod = [u for u in urls if want in u] if want else urls
+        log.info("%s: %s gave %d urls, %d look like products", site["name"], sm, len(urls), len(prod))
+        return prod or urls
+    raise RuntimeError("no usable sitemap found (tried " + ", ".join(t for t in tried if t) + ")")
+
+
+def read_sitemap(site: dict, f: Fetcher) -> list[dict]:
+    urls = _find_product_urls(site, f)
     urls = list(dict.fromkeys(urls))[: int(site.get("max_pages", 1500))]
     items = []
     for i, u in enumerate(urls):
@@ -380,6 +405,8 @@ def score(ours_norm: str, theirs_norm: str) -> float:
         return 0.0
     shared = a & b
     wa, wb, ws = sum(map(_w, a)), sum(map(_w, b)), sum(map(_w, shared))
+    if ws / wa < 0.6:  # most of OUR product's name must be found in theirs
+        return 0.0
     return 100 * (0.7 * ws / wa + 0.3 * ws / wb)
 
 
@@ -387,12 +414,36 @@ def label(item: dict) -> str:
     return f"{item['title']} {item.get('variant') or ''}".strip()
 
 
-def compatible(a: str, b: str) -> bool:
-    sa, sb = sizes(a), sizes(b)
-    if sa and sb and not (sa & sb):
+def _unit_sizes(n: str) -> set[str]:
+    return {t for t in sizes(n) if not t.startswith("pk")}
+
+
+def _packs(n: str) -> set[str]:
+    return {t for t in sizes(n) if t.startswith("pk")}
+
+
+def item_sizes(item: dict) -> tuple[set[str], set[str]]:
+    """Sizes and pack counts. A size in the variant (e.g. '1KG') beats sizes in the title
+    (titles like 'Ivory Sugarpaste 1Kg OR 2.5KG' list every option)."""
+    v, t = norm(item.get("variant") or ""), norm(item["title"])
+    units = _unit_sizes(v) or _unit_sizes(t)
+    packs = _packs(v) | _packs(t)
+    return units, packs
+
+
+def compatible(o: dict, t: dict, on: str, tn: str) -> bool:
+    ua, pa = item_sizes(o)
+    ub, pb = item_sizes(t)
+    if ua and ub and not (ua & ub):
         return False
-    ba, bb = brand(a), brand(b)
+    # a bulk pack of 10 is not the same thing as a single box
+    if (pa or pb) and not ((pa or {"pk1"}) & (pb or {"pk1"})):
+        return False
+    ba, bb = brand(on), brand(tn)
     if ba and bb and ba != bb:
+        return False
+    # wildly different prices almost always mean a different pack size or product
+    if o["price"] and t["price"] and not (1 / 3 <= t["price"] / o["price"] <= 3):
         return False
     return True
 
@@ -413,7 +464,7 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
     """Returns one row per (our item, competitor) that matched."""
     by_site: dict[str, list[dict]] = {}
     for t in theirs:
-        if t.get("price") is not None:
+        if t.get("price"):  # skips missing and zero prices
             by_site.setdefault(t["site"], []).append(t)
 
     rows = []
@@ -427,7 +478,7 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
         by_barcode = {t["barcode"]: t for t in items if t.get("barcode")}
         by_url = {t["url"]: t for t in items}
         for o in ours:
-            if o.get("price") is None:
+            if not o.get("price"):
                 continue
             ol = label(o)
             key = (ol.lower(), site.lower())
@@ -449,7 +500,7 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
                 need = 2 if len([w for w in on.split() if len(w) > 2]) >= 2 else 1
                 for idx in (i for i, c in counts.items() if c >= need):
                     cand_name = names[idx]
-                    if not compatible(on, cand_name):
+                    if not compatible(o, items[idx], on, cand_name):
                         continue
                     sc = round(score(on, cand_name))
                     if sc >= threshold and sc > best:
