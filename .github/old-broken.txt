@@ -1,4 +1,4 @@
-name: Daily competitor scan
+: Daily competitor scan
 
 on:
   schedule:
