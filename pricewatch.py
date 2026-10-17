@@ -516,7 +516,17 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
         N = len(names)
         idf = lambda t, df=df, N=N: math.log((N + 1) / (df.get(t, 0) + 1)) + 1
         by_barcode = {t["barcode"]: t for t in items if t.get("barcode")}
-        by_url = {t["url"]: t for t in items}
+        by_url: dict[str, list[dict]] = {}
+        for t in items:
+            by_url.setdefault(t["url"], []).append(t)
+
+        def pick(o, cands):
+            # one address can hold Single / 10 Pack / 25 Pack: take the one sold the same way as ours
+            mine = item_sizes(o)[1]
+            same = [t for t in cands if item_sizes(t)[1] == mine]
+            if not same and not mine:
+                same = [t for t in cands if "single" in (t.get("variant") or "").lower()]
+            return min(same or cands, key=lambda t: t["price"])
         for o in ours:
             if not o.get("price"):
                 continue
@@ -527,7 +537,8 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
                 url = overrides[key]
                 if url.lower() == "none":
                     continue
-                hit, best = by_url.get(url), 100
+                cands = by_url.get(url) or by_url.get(url.rstrip("/")) or by_url.get(url + "/")
+                hit, best = (pick(o, cands) if cands else None), 100
             elif o.get("barcode") and o["barcode"] in by_barcode:
                 hit, best = by_barcode[o["barcode"]], 100
             else:
