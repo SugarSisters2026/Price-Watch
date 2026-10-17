@@ -1,0 +1,24 @@
+name: diag
+on:
+  push:
+    branches: [diag]
+permissions:
+  contents: write
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p diag
+          UA="SugarSistersPriceWatch/1.0 (+https://sugarsisters.ie; metacoyle@sugarsisters.ie)"
+          BR="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+          for n in robots home cat40 search; do :; done
+          curl -sS -A "$UA" -o diag/robots.txt -w "robots %{http_code} %{url_effective}\n" https://www.stuff4cakes.ie/robots.txt >> diag/codes.txt 2>&1 || true
+          curl -sSL -A "$UA" -o diag/home.html -w "home_ua %{http_code} %{url_effective}\n" https://www.stuff4cakes.ie/ >> diag/codes.txt 2>&1 || true
+          curl -sSL -A "$BR" -o diag/home_br.html -w "home_br %{http_code} %{url_effective}\n" https://www.stuff4cakes.ie/ >> diag/codes.txt 2>&1 || true
+          curl -sSL -A "$UA" -o diag/cat40.html -w "cat40 %{http_code} %{url_effective}\n" "https://www.stuff4cakes.ie/index.php?route=product/category&path=40&limit=100" >> diag/codes.txt 2>&1 || true
+          curl -sSL -A "$UA" -o diag/search.html -w "search %{http_code} %{url_effective}\n" "https://www.stuff4cakes.ie/index.php?route=product/search&search=&limit=100" >> diag/codes.txt 2>&1 || true
+          ls -la diag >> diag/codes.txt
+          git config user.name diag; git config user.email diag@users.noreply.github.com
+          git add diag; git commit -m diag; git push
