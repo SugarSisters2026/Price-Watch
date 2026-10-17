@@ -5,6 +5,12 @@ on:
     # 05:17 UTC: 5:17am Irish time in winter, 6:17am in summer. GitHub can start it a little late.
     - cron: "17 5 * * *"
   workflow_dispatch: {}   # lets you press "Run workflow" by hand
+  push:                   # runs by itself whenever you upload a new version of these files
+    branches: [main]
+    paths:
+      - pricewatch.py
+      - matches.csv
+      - config.yaml
 
 permissions:
   contents: write
@@ -40,4 +46,6 @@ jobs:
           git config user.email "price-watch@users.noreply.github.com"
           git add -A data docs
           git commit -m "Scan $(date -u +%F)" || echo "nothing to commit"
+          # if files were changed on GitHub while the scan ran, catch up before saving
+          git pull --rebase -X theirs origin main
           git push
