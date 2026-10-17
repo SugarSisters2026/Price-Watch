@@ -1,0 +1,14 @@
+robots 200 https://www.stuff4cakes.ie/robots.txt
+home_ua 200 https://www.stuff4cakes.ie/
+home_br 200 https://www.stuff4cakes.ie/
+cat40 200 https://www.stuff4cakes.ie/index.php?route=product/category&path=40&limit=100
+search 200 https://www.stuff4cakes.ie/index.php?route=product/search&search=&limit=100
+total 588
+drwxr-xr-x 2 runner runner   4096 Oct 17 21:18 .
+drwxr-xr-x 7 runner runner   4096 Oct 17 21:18 ..
+-rw-r--r-- 1 runner runner  60516 Oct 17 21:18 cat40.html
+-rw-r--r-- 1 runner runner    304 Oct 17 21:18 codes.txt
+-rw-r--r-- 1 runner runner 117428 Oct 17 21:18 home.html
+-rw-r--r-- 1 runner runner 117428 Oct 17 21:18 home_br.html
+-rw-r--r-- 1 runner runner    345 Oct 17 21:18 robots.txt
+-rw-r--r-- 1 runner runner 284709 Oct 17 21:18 search.html
