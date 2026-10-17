@@ -286,7 +286,61 @@ def read_sitemap(site: dict, f: Fetcher) -> list[dict]:
     return items
 
 
-READERS = {"shopify": read_shopify, "woocommerce": read_woocommerce, "sitemap": read_sitemap}
+# ---------------------------------------------------------------- OpenCart (no product feed or sitemap)
+def _clean_opencart_url(u: str) -> str:
+    q = dict(p.split("=", 1) for p in urlparse(u).query.split("&") if "=" in p)
+    pid = q.get("product_id")
+    if not pid:
+        return u
+    return f"{urlparse(u).scheme}://{urlparse(u).netloc}{urlparse(u).path}?route=product/product&product_id={pid}"
+
+
+def read_opencart(site: dict, f: Fetcher) -> list[dict]:
+    """Reads the shop's own 'search everything' listing, page by page, like a customer browsing.
+    Each listing page already shows name and price, so no need to open every product.
+    Never uses the limit/sort parameters the shop's robots.txt asks robots to avoid."""
+    base = site["url"].rstrip("/")
+    items, seen = [], set()
+    max_pages = int(site.get("max_pages", 400))
+    for page in range(1, max_pages + 1):
+        url = f"{base}/index.php?route=product/search&search=" + (f"&page={page}" if page > 1 else "")
+        r = f.get(url)
+        soup = BeautifulSoup(r.text, "html.parser")
+        boxes = soup.select(".product-thumb")
+        new = 0
+        for b in boxes:
+            a = b.select_one(".caption h4 a") or b.select_one("h4 a") or b.find("a", href=re.compile("product_id="))
+            if not a:
+                continue
+            link = _clean_opencart_url(a.get("href", ""))
+            if link in seen:
+                continue
+            pe = b.select_one(".price-new") or b.select_one(".price")
+            if pe:
+                for sub in pe.select(".price-old, .price-tax"):
+                    sub.decompose()
+            price = _money(pe.get_text(" ", strip=True).split()[0]) if pe and pe.get_text(strip=True) else None
+            text = b.get_text(" ", strip=True).lower()
+            avail = False if ("out of stock" in text or "sold out" in text) else None
+            seen.add(link)
+            new += 1
+            items.append({
+                "site": site["name"],
+                "title": re.sub(r"\s+", " ", unescape(a.get_text(" ", strip=True))).strip(),
+                "variant": "", "sku": "", "barcode": "",
+                "price": price, "available": avail, "url": link,
+            })
+        if not boxes or not new:
+            break
+        if page % 50 == 0:
+            log.info("%s: %d listing pages, %d products", site["name"], page, len(items))
+    if not items:
+        raise RuntimeError("product listing pages showed no products")
+    return items
+
+
+READERS = {"shopify": read_shopify, "woocommerce": read_woocommerce, "sitemap": read_sitemap,
+           "opencart": read_opencart}
 
 
 def read_site(site: dict, f: Fetcher) -> list[dict]:

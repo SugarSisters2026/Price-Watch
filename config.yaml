@@ -32,10 +32,9 @@ competitors:
 
   - name: Stuff 4 Cakes
     url: https://www.stuff4cakes.ie
-    type: sitemap
-    sitemap: https://www.stuff4cakes.ie/index.php?route=extension/feed/google_sitemap
-    product_url_contains: product_id=
-    max_pages: 800
+    # no product feed or sitemap: reads the shop's listing pages instead, like a customer browsing
+    type: opencart
+    max_pages: 400
 
 settings:
   # Seconds to wait between requests to the same site, so we never hammer anyone.
