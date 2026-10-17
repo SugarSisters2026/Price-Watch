@@ -296,6 +296,7 @@ def read_site(site: dict, f: Fetcher) -> list[dict]:
 # ==================== matching ====================
 
 import csv
+import math
 import os
 import re
 
@@ -398,14 +399,26 @@ def _canon(n: str) -> list[str]:
     return [t for t in out if t]
 
 
-def score(ours_norm: str, theirs_norm: str) -> float:
-    """0-100: how much of each name is covered by words they share, weighted so sizes and brands count most."""
+def score(ours_norm: str, theirs_norm: str, idf=None) -> float:
+    """0-100: how much of each name is covered by the words they share. Sizes and brands count extra, and
+    words that are rare in the competitor's catalogue (e.g. 'eucalyptus', 'dinosaur') count far more than
+    common ones ('cutter', 'set', 'pme'), so two different cutters from the same brand don't pair up."""
     a, b = set(_canon(ours_norm)), set(_canon(theirs_norm))
     if not a or not b:
         return 0.0
+    idf = idf or (lambda t: 1.0)
+
+    def w(t):
+        base = _w(t)
+        return base if base == 3.0 else base * idf(t)  # sizes/packs keep a fixed heavy weight
+
     shared = a & b
-    wa, wb, ws = sum(map(_w, a)), sum(map(_w, b)), sum(map(_w, shared))
-    if ws / wa < 0.6:  # most of OUR product's name must be found in theirs
+    # the most distinctive word in OUR name (e.g. 'dinosaur', 'skull', 'eucalyptus') must appear in theirs
+    words = sorted((t for t in a if t.isalpha() and len(t) > 2 and _w(t) == 1.0), key=idf, reverse=True)
+    if any(t not in b for t in words[: 2 if len(words) >= 3 else 1]):
+        return 0.0
+    wa, wb, ws = sum(map(w, a)), sum(map(w, b)), sum(map(w, shared))
+    if ws / wa < 0.7:  # most of OUR product's name (by importance) must be found in theirs
         return 0.0
     return 100 * (0.7 * ws / wa + 0.3 * ws / wb)
 
@@ -431,7 +444,28 @@ def item_sizes(item: dict) -> tuple[set[str], set[str]]:
     return units, packs
 
 
+COLOURS = {"black", "white", "red", "blue", "green", "yellow", "pink", "purple", "orange", "brown", "grey", "gray",
+           "gold", "silver", "ivory", "navy", "teal", "lilac", "violet", "cream", "peach", "coral", "mint", "lime",
+           "burgundy", "maroon", "fuchsia", "turquoise", "aqua", "beige", "nude", "copper", "bronze", "rose", "ruby",
+           "cerise", "magenta", "lavender", "sage", "olive", "forest", "royal", "sky", "baby", "dusky", "dusty",
+           "champagne", "rainbow", "pastel", "neon", "caramel", "chocolate", "tangerine", "lemon", "jade", "emerald"}
+
+
+SIZE_WORDS = {"mini", "small", "medium", "large", "xl", "jumbo", "giant", "tall", "extra"}
+
+
+def colours(n: str) -> set[str]:
+    return set(n.split()) & COLOURS
+
+
 def compatible(o: dict, t: dict, on: str, tn: str) -> bool:
+    # a black colour is not a pink colour: if both name a colour, they must share one
+    ca, cb = colours(on), colours(tn)
+    if ca and cb and not (ca & cb):
+        return False
+    sa, sb = set(on.split()) & SIZE_WORDS, set(tn.split()) & SIZE_WORDS
+    if sa and sb and not (sa & sb):  # 'large star' is not 'small star'
+        return False
     ua, pa = item_sizes(o)
     ub, pb = item_sizes(t)
     if ua and ub and not (ua & ub):
@@ -475,6 +509,12 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
             for w in set(n.split()):
                 if len(w) > 2:
                     word_index.setdefault(w, set()).add(i)
+        df: dict[str, int] = {}
+        for n in names:
+            for t in set(_canon(n)):
+                df[t] = df.get(t, 0) + 1
+        N = len(names)
+        idf = lambda t, df=df, N=N: math.log((N + 1) / (df.get(t, 0) + 1)) + 1
         by_barcode = {t["barcode"]: t for t in items if t.get("barcode")}
         by_url = {t["url"]: t for t in items}
         for o in ours:
@@ -502,7 +542,7 @@ def match_all(ours: list[dict], theirs: list[dict], threshold: int, overrides: d
                     cand_name = names[idx]
                     if not compatible(o, items[idx], on, cand_name):
                         continue
-                    sc = round(score(on, cand_name))
+                    sc = round(score(on, cand_name, idf))
                     if sc >= threshold and sc > best:
                         hit, best = items[idx], sc
             if hit:
